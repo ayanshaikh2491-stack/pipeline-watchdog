@@ -1,0 +1,21 @@
+{
+  "type": "web_service",
+  "name": "pipeline-watchdog",
+  "ownerId": "tea-d5lqk2m3jp1c739lrfeg",
+  "repo": "https://github.com/ayanshaikh2491-stack/agency-platform",
+  "branch": "master",
+  "rootDir": "watchdog",
+  "autoDeploy": "yes",
+  "envVars": [
+    {"key": "EC2_URL", "value": "http://18.213.66.136:8000"},
+    {"key": "N8N_URL", "value": "https://nexus-n8n-x17d.onrender.com"},
+    {"key": "CHECK_INTERVAL", "value": "90"},
+    {"key": "GMAIL_ADDRESS", "value": "ayanagency@gmail.com"}
+  ],
+  "serviceDetails": {
+    "buildCommand": "pip install -r requirements.txt",
+    "startCommand": "uvicorn main:app --host 0.0.0.0 --port 10000",
+    "healthCheckPath": "/health",
+    "plan": "free"
+  }
+}

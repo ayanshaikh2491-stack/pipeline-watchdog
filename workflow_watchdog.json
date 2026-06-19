@@ -1,0 +1,28 @@
+{
+  "name": "Pipeline - Watchdog",
+  "nodes": [
+    {
+      "parameters": {"rule": {"interval": [{"field": "minutes", "minutesInterval": 10}]}},
+      "id": "schedule",
+      "name": "Every 10 Min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs = require('fs');\nconst path = '/tmp/lead_queue.json';\nconst dmPath = '/tmp/lead_dms.json';\n\nlet q = { cycles: 0, leads: [] };\ntry { q = JSON.parse(fs.readFileSync(path, 'utf8')); } catch(e) {}\n\nlet dms = [];\ntry { dms = JSON.parse(fs.readFileSync(dmPath, 'utf8')); } catch(e) {}\n\nconst total = q.leads.length;\nconst newLeads = q.leads.filter(l => l.status === 'new').length;\nconst processing = q.leads.filter(l => l.status === 'processing').length;\nconst dmSent = q.leads.filter(l => l.status === 'dm_sent').length;\n\n// Check for stuck processing leads (>15 min)\nconst now = Date.now();\nconst stuck = q.leads.filter(l => {\n  if (l.status !== 'processing') return false;\n  const added = new Date(l.added_at || l.dm_sent_at || now).getTime();\n  return (now - added) > 15 * 60 * 1000;\n});\n\nconst cycles = q.cycles || 0;\n\nreturn {\n  total_leads: total,\n  new_leads: newLeads,\n  processing: processing,\n  dm_sent: dmSent,\n  stuck_leads: stuck.map(l => l.business_name).join(', '),\n  cycles_completed: cycles,\n  total_dms_sent: dms.filter(d => d.type === 'initial').length,\n  followups_sent: dms.filter(d => d.type === 'followup').length,\n  health: stuck.length > 0 ? '⚠️ Stuck leads detected' : '✅ Healthy',\n  should_alert: stuck.length > 0 || (cycles > 5 && newLeads === 0 && processing === 0)\n};"
+      },
+      "id": "check",
+      "name": "Check Queue Health",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 300]
+    }
+  ],
+  "connections": {
+    "Every 10 Min": {"main": [[{"node": "Check Queue Health", "type": "main", "index": 0}]]}
+  },
+  "settings": {"timezone": "Asia/Karachi", "saveManualExecutions": true},
+  "active": true
+}

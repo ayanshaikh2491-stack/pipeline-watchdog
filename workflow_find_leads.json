@@ -1,0 +1,66 @@
+{
+  "name": "Pipeline - Find Leads (n8n)",
+  "nodes": [
+    {
+      "parameters": {"rule": {"interval": [{"field": "minutes", "minutesInterval": 3}]}},
+      "id": "schedule",
+      "name": "Every 3 Min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs = require('fs');\nconst path = '/tmp/lead_queue.json';\nlet q = { cycles: 0, leads: [] };\ntry { q = JSON.parse(fs.readFileSync(path, 'utf8')); } catch(e) {}\n\nconst inds = ['roofing','dental clinic','chiropractor','fitness center','plumber','home renovation','real estate agent','law firm','beauty salon','pest control','landscaping','cleaning service','hvac repair','painting contractor','restaurant','auto repair','movers','electrician','locksmith','massage therapy','daycare','personal trainer','veterinary clinic'];\nconst locs = ['US','Canada','UK','Australia'];\n\nq.cycles++;\nconst industry = inds[(q.cycles - 1) % inds.length];\nconst location = locs[(q.cycles - 1) % locs.length];\n\nfs.writeFileSync(path, JSON.stringify(q));\n\nreturn {\n  industry,\n  location,\n  cycle: q.cycles,\n  query: `${industry} ${location} business email contact`\n};"
+      },
+      "id": "gen",
+      "name": "Rotate Industry",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://html.duckduckgo.com/html/",
+        "authentication": "none",
+        "sendBody": true,
+        "bodyParameters": {"parameters": [{"name": "q", "value": "={{ $json.query }}"}]},
+        "options": {}
+      },
+      "id": "ddg",
+      "name": "DDG Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [600, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs = require('fs');\nconst html = $json.body || $json.html || '';\nconst industry = $json.industry || 'general';\n\n// Parse DDG HTML results\nconst results = [];\nconst blocks = html.match(/<h2[^>]*class=\"result__title\"[^>]*>[\\s\\S]*?<\\/h2>/gi) || [];\nfor (const block of blocks) {\n  const urlMatch = block.match(/href=\"(https?:[^\"]+)\"/);\n  const titleMatch = block.match(/<a[^>]*>([\\s\\S]*?)<\\/a>/);\n  if (!urlMatch) continue;\n  \n  const url = urlMatch[1].replace(/&amp;/g,'&');\n  const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g,'').trim() : '';\n  \n  // Find snippet\n  const snippetMatch = html.match(new RegExp(url.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&').split('?')[0].substring(0,40) + '[\\\\s\\\\S]*?<a[^>]*class=\"result__snippet\"[^>]*>([\\\\s\\\\S]*?)<\\\\/a>', 'i'));\n  const snippet = snippetMatch ? snippetMatch[1].replace(/<[^>]+>/g,'').trim() : '';\n  \n  const biz = {\n    business_name: title.split(' - ')[0].split(' | ')[0].trim().replace(/&#?\\w+;/g,''),\n    website: url.split('?')[0],\n    email: '',\n    phone: '',\n    source: 'duckduckgo',\n    industry: industry\n  };\n  \n  if (!biz.business_name) biz.business_name = url.replace(/https?:\\/\\/(www\\.)?/,'').split('/')[0].replace(/\\.com|\\.[a-z]{2,4}$/g,'').replace(/-/g,' ').replace(/^./,c=>c.toUpperCase());\n  \n  const eMatch = snippet.match(/[\\w.+-]+@[\\w-]+\\.[\\w.]+/);\n  if (eMatch) { const e=eMatch[0]; if(!['hello@','info@','contact@','support@','admin@','sales@'].some(p=>e.startsWith(p))) biz.email=e; }\n  \n  const pMatch = snippet.match(/(\\+?\\d{1,3}[-.\\s]?)?\\(?\\d{3}\\)?[-.\\s]?\\d{3}[-.\\s]?\\d{4}/);\n  if (pMatch) biz.phone = pMatch[0];\n  \n  let s = 30;\n  if (biz.email && biz.email.includes('@')) s += 30;\n  if (biz.phone && biz.phone.replace(/\\D/g,'').length >= 10) s += 20;\n  if (biz.website) s += 15;\n  biz.score = Math.min(s, 100);\n  \n  if (s >= 30) results.push(biz);\n}\n\nreturn { leads: results, industry };"
+      },
+      "id": "parse",
+      "name": "Parse & Score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs = require('fs');\nconst path = '/tmp/lead_queue.json';\nlet q = { cycles: 0, leads: [] };\ntry { q = JSON.parse(fs.readFileSync(path, 'utf8')); } catch(e) {}\n\nconst newLeads = $json.leads || [];\nconst chains = ['walmart','target','costco','homedepot','lowes','mcdonald','starbucks','subway','domino','kfc','marriott','hilton','best buy','walgreens','cvs','chevron','shell','pizza hut','burger king','taco bell','dunkin','wendy','7-eleven','aldi','lidl','whole foods','publix','safeway','trader joe','tj maxx','macy','nike','adidas','gap','old navy','apple store','verizon','att','tmobile','comcast','xfinity','state farm','geico','allstate','nationwide','yelp','facebook','instagram','linkedin','twitter','amazon','bbb','yellowpages'];\n\nlet added = 0;\nconst existing = new Set(q.leads.map(l => l.business_name?.toLowerCase()));\n\nfor (const lead of newLeads) {\n  const name = (lead.business_name || '').toLowerCase();\n  if (!name || name.length < 3) continue;\n  if (chains.some(c => name.includes(c))) continue;\n  if (existing.has(name)) continue;\n  \n  lead.id = 'lead_' + Math.abs(lead.business_name.split('').reduce((a,c) => a * 31 + c.charCodeAt(0), 0));\n  lead.status = 'new';\n  lead.added_at = new Date().toISOString();\n  q.leads.push(lead);\n  existing.add(name);\n  added++;\n}\n\nq.leads.sort((a,b) => (b.score||0) - (a.score||0));\nif (q.leads.length > 200) q.leads = q.leads.slice(0,200);\n\nfs.writeFileSync(path, JSON.stringify(q, null, 2));\n\nreturn {\n  added,\n  total_leads: q.leads.length,\n  status: `Added ${added} leads (total: ${q.leads.length})`\n};"
+      },
+      "id": "save",
+      "name": "Save to Queue",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 300]
+    }
+  ],
+  "connections": {
+    "Every 3 Min": {"main": [[{"node": "Rotate Industry", "type": "main", "index": 0}]]},
+    "Rotate Industry": {"main": [[{"node": "DDG Search", "type": "main", "index": 0}]]},
+    "DDG Search": {"main": [[{"node": "Parse & Score", "type": "main", "index": 0}]]},
+    "Parse & Score": {"main": [[{"node": "Save to Queue", "type": "main", "index": 0}]]}
+  },
+  "settings": {"timezone": "Asia/Karachi", "saveManualExecutions": true},
+  "active": true
+}

@@ -1,0 +1,63 @@
+{
+  "name": "Pipeline - Status API v2",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "pipe-status",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Status Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "pipe-status"
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {"name": "status", "value": "online"},
+            {"name": "service", "value": "n8n-pipeline"}
+          ],
+          "number": [
+            {"name": "cycles_run", "value": 0}
+          ]
+        },
+        "options": {}
+      },
+      "id": "set",
+      "name": "Static Status",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {"name": "Access-Control-Allow-Origin", "value": "*"},
+              {"name": "Content-Type", "value": "application/json"}
+            ]
+          }
+        }
+      },
+      "id": "respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [650, 300]
+    }
+  ],
+  "connections": {
+    "Status Webhook": {"main": [[{"node": "Static Status", "type": "main", "index": 0}]]},
+    "Static Status": {"main": [[{"node": "Respond", "type": "main", "index": 0}]]}
+  },
+  "settings": {"timezone": "Asia/Karachi"},
+  "active": true
+}

@@ -1,0 +1,86 @@
+{
+  "name": "Pipeline - Watchdog",
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [{"field": "seconds", "secondsInterval": 120}] } },
+      "id": "schedule-trigger",
+      "name": "Every 2 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://18.213.66.136:8000/api/pipeline/status",
+        "authentication": "none",
+        "options": {}
+      },
+      "id": "check-status",
+      "name": "Check Pipeline",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "id": "is-not-active",
+              "leftValue": "={{ $json[\"data\"][\"pipeline_active\"] }}",
+              "type": "boolean",
+              "rightValue": [{"value": false}],
+              "operator": {"type": "boolean", "operation": "equal"}
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-stopped",
+      "name": "Pipeline Stopped?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://18.213.66.136:8000/api/pipeline/trigger-cycle",
+        "authentication": "none",
+        "options": {}
+      },
+      "id": "restart",
+      "name": "Auto-Restart Pipeline",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {},
+      "id": "done-ok",
+      "name": "OK",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [900, 450]
+    }
+  ],
+  "connections": {
+    "Every 2 Minutes": {"main": [[{"node": "Check Pipeline", "type": "main", "index": 0}]]},
+    "Check Pipeline": {
+      "main": [
+        [{"node": "Pipeline Stopped?", "type": "main", "index": 0}],
+        [{"node": "Pipeline Stopped?", "type": "main", "index": 0}]
+      ]
+    },
+    "Pipeline Stopped?": {
+      "main": [
+        [{"node": "Auto-Restart Pipeline", "type": "main", "index": 0}],
+        [{"node": "OK", "type": "main", "index": 0}]
+      ]
+    },
+    "Auto-Restart Pipeline": {"main": [[{"node": "OK", "type": "main", "index": 0}]]}
+  },
+  "settings": {"timezone": "Asia/Karachi"},
+  "active": true
+}

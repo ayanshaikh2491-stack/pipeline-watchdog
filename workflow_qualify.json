@@ -1,0 +1,28 @@
+{
+  "name": "Pipeline - Qualify Leads",
+  "nodes": [
+    {
+      "parameters": {"rule": {"interval": [{"field": "minutes", "minutesInterval": 3}]}},
+      "id": "schedule",
+      "name": "Every 3 Min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs = require('fs');\nconst path = '/tmp/lead_queue.json';\nlet q = { cycles: 0, leads: [] };\ntry {\n  const raw = fs.readFileSync(path, 'utf8');\n  q = JSON.parse(raw);\n} catch(e) {\n  return { qualified: [], message: 'No queue file yet' };\n}\n\nconst newLeads = q.leads.filter(l => l.status === 'new' && (l.score || 0) >= 50);\nnewLeads.sort((a,b) => (b.score||0) - (a.score||0));\nconst top = newLeads.slice(0, 3);\n\n// Mark as processing\nfor (const lead of top) {\n  const idx = q.leads.findIndex(l => l.id === lead.id);\n  if (idx !== -1) q.leads[idx].status = 'processing';\n}\n\nfs.writeFileSync(path, JSON.stringify(q, null, 2));\n\nif (top.length === 0) {\n  return { qualified: [], message: 'No qualified new leads' };\n}\n\nreturn {\n  qualified: top.map(l => ({\n    business_name: l.business_name,\n    email: l.email,\n    phone: l.phone,\n    industry: l.industry,\n    score: l.score,\n    website: l.website\n  })),\n  message: `Qualified ${top.length} leads`\n};"
+      },
+      "id": "qualify",
+      "name": "Read & Qualify",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 300]
+    }
+  ],
+  "connections": {
+    "Every 3 Min": {"main": [[{"node": "Read & Qualify", "type": "main", "index": 0}]]}
+  },
+  "settings": {"timezone": "Asia/Karachi", "saveManualExecutions": true},
+  "active": true
+}

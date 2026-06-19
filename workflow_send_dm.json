@@ -1,0 +1,55 @@
+{
+  "name": "Pipeline - Send DM",
+  "nodes": [
+    {
+      "parameters": {"rule": {"interval": [{"field": "minutes", "minutesInterval": 3}]}},
+      "id": "schedule",
+      "name": "Every 3 Min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs = require('fs');\nconst path = '/tmp/lead_queue.json';\nlet q = { cycles: 0, leads: [] };\ntry { q = JSON.parse(fs.readFileSync(path, 'utf8')); } catch(e) {}\n\n// Find processing leads\nconst processing = q.leads.filter(l => l.status === 'processing');\n\nif (processing.length === 0) {\n  return { ready: false, message: 'No leads to DM' };\n}\n\nconst lead = processing[0];\n\n// DM templates (rotate by cycle)\nconst templates = [\n  { subject: 'Quick question for {first}', body: 'Hi {first},\\n\\nI work with {industry} business owners who are stretched thin.\\n\\nQuick question: What\\'s the ONE task you\\'d delegate right now?\\n\\nReply directly. Curious what your biggest time-drain is.\\n\\nBest,\\nAyan' },\n  { subject: '{first}, curious about something', body: 'Hi {first},\\n\\nQuick one — I\\'m talking to a few {industry} owners and everyone has a different answer:\\n\\nWhat\\'s the most time-consuming admin task in your business right now?\\n\\nJust curious — reply if you have a sec.\\n\\nBest,\\nAyan' },\n  { subject: '{first}, 2 min question', body: 'Hi {first},\\n\\nIf you could free up 15 hours/week in your {industry} business, what would you do?\\n\\nI help business owners do exactly this. Reply if curious.\\n\\nBest,\\nAyan' }\n];\n\nconst tpl = templates[(q.cycles || 0) % templates.length];\nconst first = (lead.business_name || '').split(' ')[0] || lead.business_name;\n\nconst subject = tpl.subject.replace('{first}', first);\nconst body = tpl.body.replace('{first}', first).replace(/{industry}/g, lead.industry || 'your industry');\n\nreturn {\n  ready: true,\n  lead,\n  first_name: first,\n  subject,\n  body,\n  to_email: lead.email,\n  business: lead.business_name,\n  industry: lead.industry || 'general'\n};"
+      },
+      "id": "prep",
+      "name": "Prepare DM",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "ayanagency@gmail.com",
+        "toEmail": "={{ $json.to_email }}",
+        "subject": "={{ $json.subject }}",
+        "text": "={{ $json.body }}",
+        "options": {}
+      },
+      "credentials": {"smtp": {"id": "CXzOgKhXNw3zUGy3", "name": "Gmail SMTP (pipeline)"}},
+      "id": "email",
+      "name": "Send Gmail",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 1,
+      "position": [600, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs = require('fs');\nconst path = '/tmp/lead_queue.json';\nconst dmPath = '/tmp/lead_dms.json';\n\nlet q = { cycles: 0, leads: [] };\ntry { q = JSON.parse(fs.readFileSync(path, 'utf8')); } catch(e) {}\n\nconst business = $json.business || '';\nconst email = $json.to_email || '';\nconst subject = $json.subject || '';\nconst body = $json.body || '';\n\n// Mark lead as dm_sent\nfor (let i = 0; i < q.leads.length; i++) {\n  if (q.leads[i].business_name === business) {\n    q.leads[i].status = 'dm_sent';\n    q.leads[i].dm_sent_at = new Date().toISOString();\n    break;\n  }\n}\n\nfs.writeFileSync(path, JSON.stringify(q, null, 2));\n\n// Log DM to separate file\nlet dms = [];\ntry { dms = JSON.parse(fs.readFileSync(dmPath, 'utf8')); } catch(e) {}\ndms.push({\n  business,\n  email,\n  subject,\n  type: 'initial',\n  sent_at: new Date().toISOString()\n});\nif (dms.length > 500) dms = dms.slice(-500);\nfs.writeFileSync(dmPath, JSON.stringify(dms, null, 2));\n\n// Save client brief\nconst brief = `# ${business}\\n\\n**Industry:** ${$json.industry}\\n**Email:** ${email}\\n\\n---\\n\\n## 📬 DM Sent\\n\\n**Subject:** ${subject}\\n**Body:** ${body}\\n\\n---\\n\\n## 📋 Status\\n- [x] DM sent — waiting for reply\\n- [ ] Client replied — check Gmail inbox\\n- [ ] Meeting scheduled\\n- [ ] Payment received\\n- [ ] Work started`;\n\nconst briefPath = '/tmp/briefs/' + business.replace(/[^a-zA-Z0-9]/g, '_') + '.md';\ntry { fs.mkdirSync('/tmp/briefs', {recursive: true}); } catch(e) {}\ntry { fs.writeFileSync(briefPath, brief); } catch(e) {}\n\nreturn {\n  status: 'dm_sent',\n  business,\n  email,\n  subject,\n  brief_saved: true\n};"
+      },
+      "id": "mark",
+      "name": "Mark Sent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 300]
+    }
+  ],
+  "connections": {
+    "Every 3 Min": {"main": [[{"node": "Prepare DM", "type": "main", "index": 0}]]},
+    "Prepare DM": {"main": [[{"node": "Send Gmail", "type": "main", "index": 0}]]},
+    "Send Gmail": {"main": [[{"node": "Mark Sent", "type": "main", "index": 0}]]}
+  },
+  "settings": {"timezone": "Asia/Karachi", "saveManualExecutions": true},
+  "active": true
+}

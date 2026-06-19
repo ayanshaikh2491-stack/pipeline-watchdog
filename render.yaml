@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: pipeline-watchdog
+    runtime: python
+    region: singapore
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port 10000
+    envVars:
+      - key: EC2_URL
+        value: http://18.213.66.136:8000
+      - key: N8N_URL
+        value: https://nexus-n8n-x17d.onrender.com
+      - key: N8N_WEBHOOK_PATHS
+        value: /webhook/test,/webhook/prod
+      - key: CHECK_INTERVAL
+        value: "90"
+      - key: GMAIL_ADDRESS
+        sync: false
+      - key: GMAIL_APP_PASSWORD
+        sync: false

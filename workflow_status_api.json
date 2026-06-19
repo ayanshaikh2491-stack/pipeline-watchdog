@@ -1,0 +1,54 @@
+{
+  "name": "Pipeline - Status API (webhook)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "pipeline-status",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [200, 300],
+      "webhookId": "pipeline-status"
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs = require('fs');\n\n// Read queue\nlet q = { cycles: 0, leads: [] };\ntry { q = JSON.parse(fs.readFileSync('/tmp/lead_queue.json', 'utf8')); } catch(e) {}\n\n// Read DMs\nlet dms = [];\ntry { dms = JSON.parse(fs.readFileSync('/tmp/lead_dms.json', 'utf8')); } catch(e) {}\n\n// Count by status\nconst total = q.leads.length;\nconst newLeads = q.leads.filter(l => l.status === 'new').length;\nconst processing = q.leads.filter(l => l.status === 'processing').length;\nconst dmSent = q.leads.filter(l => l.status === 'dm_sent').length;\n\n// Leads with email (qualifiable)\nconst withEmail = q.leads.filter(l => l.email && l.email.includes('@')).length;\n\n// Build response matching old EC2 format\nconst status = {\n  success: true,\n  pipeline: {\n    cycles_run: q.cycles || 0,\n    last_cycle: new Date().toISOString(),\n    current_phase: dmSent > 0 ? 'sending_dm' : (processing > 0 ? 'processing' : (newLeads > 0 ? 'finding_leads' : 'idle')),\n    pipeline_active: true,\n    errors: [],\n    leads_found_today: 0,  // simplified - no daily tracking\n    total_leads_found: total,\n    total_onboarded: dmSent,\n    total_dms_sent: dms.filter(d => d.type === 'initial').length,\n    total_followups_sent: dms.filter(d => d.type === 'followup').length,\n    queue: {\n      total: total,\n      new: newLeads,\n      processing: processing,\n      dm_sent: dmSent,\n      with_email: withEmail\n    }\n  },\n  n8n: {\n    workflows: {\n      find_leads: 'active',\n      qualify: 'active',\n      send_dm: 'active',\n      follow_up: 'active',\n      watchdog: 'active'\n    }\n  }\n};\n\nreturn status;"
+      },
+      "id": "read-queue",
+      "name": "Get Pipeline Status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {"name": "Access-Control-Allow-Origin", "value": "*"},
+              {"name": "Content-Type", "value": "application/json"}
+            ]
+          }
+        }
+      },
+      "id": "respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [600, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {"main": [[{"node": "Get Pipeline Status", "type": "main", "index": 0}]]},
+    "Get Pipeline Status": {"main": [[{"node": "Respond", "type": "main", "index": 0}]]}
+  },
+  "settings": {"timezone": "Asia/Karachi", "saveManualExecutions": true},
+  "active": true
+}

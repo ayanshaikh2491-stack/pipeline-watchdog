@@ -1,0 +1,55 @@
+{
+  "name": "Pipeline - Follow Up",
+  "nodes": [
+    {
+      "parameters": {"rule": {"interval": [{"field": "hours", "hoursInterval": 6}]}},
+      "id": "schedule",
+      "name": "Every 6 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs = require('fs');\nconst dmPath = '/tmp/lead_dms.json';\n\nlet dms = [];\ntry { dms = JSON.parse(fs.readFileSync(dmPath, 'utf8')); } catch(e) {}\n\n// Find initial DMs sent >48h ago that haven't been followed up\nconst now = Date.now();\nconst followedUp = new Set(dms.filter(d => d.type === 'followup').map(d => d.business));\n\nconst due = dms.filter(d => {\n  if (d.type !== 'initial') return false;\n  if (followedUp.has(d.business)) return false;\n  const sentAt = new Date(d.sent_at).getTime();\n  return (now - sentAt) > 48 * 60 * 60 * 1000; // 48h\n});\n\nif (due.length === 0) {\n  return { ready: false, message: 'No follow-ups due' };\n}\n\n// Take first due\nconst lead = due[0];\nconst first = (lead.business || '').split(' ')[0] || lead.business;\n\n// Follow-up templates\nconst fuTemplates = [\n  { subject: 'Re: Quick question for {first}', body: 'Hi {first},\\n\\nJust circling back — my last email probably got buried.\\n\\nI help {industry} business owners save 15-20 hrs/week on admin. No fluff, just a dedicated assistant.\\n\\nIf that sounds useful, reply and we can hop on a quick call.\\n\\nBest,\\nAyan' },\n  { subject: 'Following up, {first}', body: 'Hi {first},\\n\\nNot trying to be pushy — genuinely curious if admin overload is something you deal with.\\n\\nMost {industry} owners I talk to say they lose 10+ hrs/week on emails, scheduling, and follow-ups.\\n\\nWant to chat for 10 min this week?\\n\\nBest,\\nAyan' }\n];\n\nconst tpl = fuTemplates[Math.floor(Math.random() * fuTemplates.length)];\nconst subject = tpl.subject.replace('{first}', first);\nconst body = tpl.body.replace('{first}', first).replace(/{industry}/g, lead.industry || 'your industry');\n\nreturn {\n  ready: true,\n  business: lead.business,\n  email: lead.email,\n  first_name: first,\n  subject,\n  body,\n  industry: lead.industry || 'general'\n};"
+      },
+      "id": "check",
+      "name": "Check Follow-ups Due",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "ayanagency@gmail.com",
+        "toEmail": "={{ $json.email }}",
+        "subject": "={{ $json.subject }}",
+        "text": "={{ $json.body }}",
+        "options": {}
+      },
+      "credentials": {"smtp": {"id": "CXzOgKhXNw3zUGy3", "name": "Gmail SMTP (pipeline)"}},
+      "id": "email",
+      "name": "Send Follow-up",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 1,
+      "position": [600, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs = require('fs');\nconst dmPath = '/tmp/lead_dms.json';\n\nlet dms = [];\ntry { dms = JSON.parse(fs.readFileSync(dmPath, 'utf8')); } catch(e) {}\n\ndms.push({\n  business: $json.business,\n  email: $json.email,\n  subject: $json.subject,\n  type: 'followup',\n  sent_at: new Date().toISOString()\n});\n\nif (dms.length > 500) dms = dms.slice(-500);\nfs.writeFileSync(dmPath, JSON.stringify(dms, null, 2));\n\nreturn {\n  status: 'followup_sent',\n  business: $json.business,\n  email: $json.email\n};"
+      },
+      "id": "log",
+      "name": "Log Follow-up",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 300]
+    }
+  ],
+  "connections": {
+    "Every 6 Hours": {"main": [[{"node": "Check Follow-ups Due", "type": "main", "index": 0}]]},
+    "Check Follow-ups Due": {"main": [[{"node": "Send Follow-up", "type": "main", "index": 0}]]},
+    "Send Follow-up": {"main": [[{"node": "Log Follow-up", "type": "main", "index": 0}]]}
+  },
+  "settings": {"timezone": "Asia/Karachi", "saveManualExecutions": true},
+  "active": true
+}

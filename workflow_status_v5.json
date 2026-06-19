@@ -1,0 +1,54 @@
+{
+  "name": "Pipeline - Status API",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "n8n-pipeline-status",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wh",
+      "name": "API",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "n8n-pipeline-status"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Read pipeline queue from /tmp/lead_queue.json and build status\nconst fs = require('fs');\nconst path = '/tmp/lead_queue.json';\nconst now = new Date().toISOString();\n\nlet queue = { cycles: 0, leads: [] };\ntry {\n  queue = JSON.parse(fs.readFileSync(path, 'utf8'));\n} catch (e) {\n  // File doesn't exist yet — pipeline has not run\n}\n\nconst leads = queue.leads || [];\nconst newLeads = leads.filter(l => l.status === 'new').length;\nconst processing = leads.filter(l => l.status === 'processing').length;\nconst dmSent = leads.filter(l => l.status === 'dm_sent').length;\nconst withEmail = leads.filter(l => l.email && l.email.includes('@')).length;\n\nconst currentPhase = dmSent > 0\n  ? 'sending_dm'\n  : processing > 0\n    ? 'processing'\n    : newLeads > 0\n      ? 'finding_leads'\n      : 'idle';\n\nconst response = {\n  success: true,\n  pipeline: {\n    cycles_run: queue.cycles || 0,\n    last_cycle: now,\n    current_phase: currentPhase,\n    pipeline_active: true,\n    errors: [],\n    leads_found_today: leads.length,\n    total_leads_found: leads.length,\n    total_onboarded: dmSent,\n    total_dms_sent: dmSent,\n    queue: {\n      total: leads.length,\n      new: newLeads,\n      processing: processing,\n      dm_sent: dmSent,\n      with_email: withEmail\n    }\n  }\n};\n\nreturn response;"
+      },
+      "id": "code",
+      "name": "Read Queue",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {"name": "Access-Control-Allow-Origin", "value": "*"},
+              {"name": "Content-Type", "value": "application/json"}
+            ]
+          }
+        }
+      },
+      "id": "resp",
+      "name": "Return",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [650, 300]
+    }
+  ],
+  "connections": {
+    "API": {"main": [[{"node": "Read Queue", "type": "main", "index": 0}]]},
+    "Read Queue": {"main": [[{"node": "Return", "type": "main", "index": 0}]]}
+  },
+  "settings": {"timezone": "Asia/Karachi"},
+  "active": true
+}
